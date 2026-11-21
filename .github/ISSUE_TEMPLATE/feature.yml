@@ -1,0 +1,31 @@
+name: Feature
+description: Something new for the app. The planner writes a plan; you add `approved` to build it.
+labels: [feature]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What and why
+      description: What should change for the user, and why.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: One per line. Each must be checkable. This is the spec.
+      placeholder: |
+        - On the Games page, a new card shows ...
+        - With reduced motion on, it does not animate
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What this change must not do.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Links, screenshots, ideas for the approach.

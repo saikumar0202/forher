@@ -1,0 +1,6 @@
+# Pipeline settings for this repo (shipyard docs/PIPELINE.md).
+# Protected file: the pipeline never changes it; edit it yourself.
+stages: [build]   # later: discover-define, release, operate, learn
+spec: off         # on: a spec writer and the spec-ok gate before planning
+type: web         # web | game | ai | desktop
+monetisation: []  # [] | [ads] | [iap] | [ads, iap]

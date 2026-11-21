@@ -1,0 +1,92 @@
+# CI for every PR (shipyard docs/PIPELINE.md > Testing, AI review).
+#   test       install, lint, type check + build, unit tests, repro-guard. The one check CI owns.
+#   reviewers  which reviewers run (code and QA always, plus active-panel review:* labels)
+#   review     one fresh Claude session per reviewer, only after test passes
+# Never pull_request_target. Agents run only for PRs by you or the pipeline bot
+# from this repo (checked inside agent-run).
+name: ci
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+# A new push replaces a stale CI + review run for the same PR.
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  SHIPYARD_REF: v0.1.2   # keep equal to the @ref in the review job below
+
+jobs:
+  test:
+    if: vars.PIPELINE_PAUSED != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read   # check out the code
+      issues: read     # repro-guard reads the repro-sha comment on the linked issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # repro-guard diffs against the repro-sha commit
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm install -g --no-fund --no-audit pnpm@10.28.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm build   # tsc -b (type check) + vite build
+      - run: pnpm test
+      - name: repro-guard (fix PRs keep the reproducer's test unchanged)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PIPELINE_BOT: ${{ vars.PIPELINE_BOT }}
+        run: |
+          git init -q "$RUNNER_TEMP/pipeline"
+          git -C "$RUNNER_TEMP/pipeline" fetch -q --depth 1 https://github.com/saikumar0202/shipyard "$SHIPYARD_REF"
+          git -C "$RUNNER_TEMP/pipeline" checkout -q FETCH_HEAD
+          python3 "$RUNNER_TEMP/pipeline/scripts/repro_guard.py"
+
+  reviewers:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions: {}   # reads only the event payload
+    outputs:
+      names: ${{ steps.plan.outputs.names }}
+      issue: ${{ steps.plan.outputs.issue }}
+    steps:
+      - id: plan
+        run: |
+          git init -q "$RUNNER_TEMP/pipeline"
+          git -C "$RUNNER_TEMP/pipeline" fetch -q --depth 1 https://github.com/saikumar0202/shipyard "$SHIPYARD_REF"
+          git -C "$RUNNER_TEMP/pipeline" checkout -q FETCH_HEAD
+          python3 "$RUNNER_TEMP/pipeline/scripts/review_plan.py"
+
+  review:
+    needs: [test, reviewers]
+    strategy:
+      fail-fast: false
+      max-parallel: 2   # at most 2 reviewers at a time
+      matrix:
+        name: ${{ fromJSON(needs.reviewers.outputs.names) }}
+    # Upper bound for agent-run's jobs; each narrows it further.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    uses: saikumar0202/shipyard/.github/workflows/agent-run.yml@v0.1.2
+    with:
+      shipyard_ref: v0.1.2
+      role: reviewer
+      review_name: ${{ matrix.name }}
+      issue: ${{ fromJSON(needs.reviewers.outputs.issue) }}
+      pr: ${{ github.event.pull_request.number }}
+      head_sha: ${{ github.event.pull_request.head.sha }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

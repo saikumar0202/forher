@@ -3,3 +3,6 @@ dist/
 .pnpm-store/
 *.tsbuildinfo
 .DS_Store
+test-results/
+playwright-report/
+.lighthouseci/

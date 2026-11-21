@@ -1,0 +1,104 @@
+# Vercel preview checks (shipyard docs/PIPELINE.md > Testing > Web).
+# On a successful Preview deployment of a PR's commit:
+#   gate        trigger check: created by vercel[bot], sha is the head of an open PR from this repo
+#   e2e         Playwright against the preview URL (the `e2e` check the ready check requires)
+#   lighthouse  report-only for now (budgets in lighthouserc.json); never blocks or retries
+# The UI and accessibility reviewer joins when review:ui is in the active panel.
+name: preview
+
+on: deployment_status
+
+permissions: {}
+
+env:
+  SHIPYARD_REF: v0.1.2
+
+jobs:
+  gate:
+    if: >-
+      vars.PIPELINE_PAUSED != 'true'
+      && github.event.deployment_status.state == 'success'
+      && startsWith(github.event.deployment.environment, 'Preview')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read        # commits/<sha>/pulls
+      pull-requests: read   # is the sha the head of an open PR?
+    outputs:
+      allowed: ${{ steps.trigger.outputs.allowed }}
+    steps:
+      - id: trigger
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PIPELINE_OWNER: ${{ vars.PIPELINE_OWNER || github.repository_owner }}
+          PIPELINE_BOT: ${{ vars.PIPELINE_BOT }}
+          PIPELINE_PAUSED: ${{ vars.PIPELINE_PAUSED }}
+        run: |
+          git init -q "$RUNNER_TEMP/pipeline"
+          git -C "$RUNNER_TEMP/pipeline" fetch -q --depth 1 https://github.com/saikumar0202/shipyard "$SHIPYARD_REF"
+          git -C "$RUNNER_TEMP/pipeline" checkout -q FETCH_HEAD
+          python3 "$RUNNER_TEMP/pipeline/scripts/trigger_check.py"
+
+  e2e:
+    needs: gate
+    if: needs.gate.outputs.allowed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read   # check out the deployed commit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.deployment.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm install -g --no-fund --no-audit pnpm@10.28.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Playwright against the preview
+        env:
+          E2E_BASE_URL: ${{ github.event.deployment_status.target_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: pnpm e2e
+      - name: Upload report and screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+
+  lighthouse:
+    needs: [gate, e2e]
+    if: always() && needs.gate.outputs.allowed == 'true'
+    continue-on-error: true   # report-only in version 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read   # read lighthouserc.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.deployment.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Lighthouse (budgets warn only)
+        env:
+          LHCI_COLLECT__URL: ${{ github.event.deployment_status.target_url }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          export LHCI_COLLECT__SETTINGS__EXTRA_HEADERS="{\"x-vercel-protection-bypass\":\"${BYPASS}\"}"
+          npx --yes @lhci/cli@0.15.1 autorun
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lighthouse-report
+          path: .lighthouseci
+          include-hidden-files: true
+          retention-days: 14

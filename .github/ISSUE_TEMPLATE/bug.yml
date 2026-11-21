@@ -1,0 +1,32 @@
+name: Bug
+description: Something broken. The reproducer writes a failing test; the builder fixes it.
+labels: [bug]
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open /games
+        2. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device or browser
+      placeholder: e.g. iPhone 15 Safari, Chrome 131 on Windows
+    validations:
+      required: true

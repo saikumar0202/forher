@@ -1,0 +1,72 @@
+# The one caller for issue and label events (shipyard docs/PIPELINE.md > Handoffs).
+# A tiny route job picks the agent; agent jobs run only when picked (job-level if),
+# so a skipped route costs nothing. Runs from main only (issues events).
+#
+# Build order step 4: builder only.
+#   approved on a feature; repro-ok/manual-repro on a bug without hold;
+#   hold removed, or approved on a reproduced bug.
+# Planner, reproducer, @claude, must-fix, budget and WIP routes come with step 5.
+name: pipeline-events
+
+on:
+  issues:
+    types: [labeled, unlabeled]
+
+permissions: {}
+
+env:
+  SHIPYARD_REF: v0.1.2
+
+jobs:
+  route:
+    if: vars.PIPELINE_PAUSED != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions: {}   # reads only the event payload
+    outputs:
+      agent: ${{ steps.route.outputs.agent }}
+      issue: ${{ steps.route.outputs.issue }}
+    steps:
+      - name: Fetch shipyard at the pinned ref
+        run: |
+          git init -q "$RUNNER_TEMP/pipeline"
+          git -C "$RUNNER_TEMP/pipeline" fetch -q --depth 1 https://github.com/saikumar0202/shipyard "$SHIPYARD_REF"
+          git -C "$RUNNER_TEMP/pipeline" checkout -q FETCH_HEAD
+      - name: Trigger check (actor must be you or the pipeline bot)
+        id: trigger
+        env:
+          PIPELINE_OWNER: ${{ vars.PIPELINE_OWNER || github.repository_owner }}
+          PIPELINE_BOT: ${{ vars.PIPELINE_BOT }}
+          PIPELINE_PAUSED: ${{ vars.PIPELINE_PAUSED }}
+        run: python3 "$RUNNER_TEMP/pipeline/scripts/trigger_check.py"
+      - name: Route
+        id: route
+        if: steps.trigger.outputs.allowed == 'true'
+        run: python3 "$RUNNER_TEMP/pipeline/scripts/route.py"
+
+  builder:
+    needs: route
+    if: needs.route.outputs.agent == 'builder'
+    # Builder runs for one issue never cancel each other.
+    concurrency:
+      group: issue-${{ needs.route.outputs.issue }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    uses: saikumar0202/shipyard/.github/workflows/agent-run.yml@v0.1.2
+    with:
+      shipyard_ref: v0.1.2
+      role: builder
+      issue: ${{ fromJSON(needs.route.outputs.issue) }}
+      toolchain: pnpm
+      bash_commands: |
+        pnpm install --frozen-lockfile
+        pnpm lint
+        pnpm build
+        pnpm test
+        pnpm e2e
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
