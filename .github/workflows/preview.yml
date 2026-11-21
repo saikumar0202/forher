@@ -11,7 +11,7 @@ on: deployment_status
 permissions: {}
 
 env:
-  SHIPYARD_REF: v0.1.2
+  SHIPYARD_REF: v0.2.0
 
 jobs:
   gate:

@@ -15,7 +15,7 @@ on:
 permissions: {}
 
 env:
-  SHIPYARD_REF: v0.1.2
+  SHIPYARD_REF: v0.2.0
 
 jobs:
   route:
@@ -55,9 +55,9 @@ jobs:
       contents: read
       issues: read
       pull-requests: read
-    uses: saikumar0202/shipyard/.github/workflows/agent-run.yml@v0.1.2
+    uses: saikumar0202/shipyard/.github/workflows/agent-run.yml@v0.2.0
     with:
-      shipyard_ref: v0.1.2
+      shipyard_ref: v0.2.0
       role: builder
       issue: ${{ fromJSON(needs.route.outputs.issue) }}
       toolchain: pnpm

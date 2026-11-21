@@ -1,6 +1,7 @@
 # Recomputes the `ready` check whenever CI or the preview checks finish
-# (shipyard docs/PIPELINE.md > Merge readiness). web: test, e2e and every
-# labeled reviewer (code and QA always). Runs from main only (workflow_run).
+# (shipyard docs/PIPELINE.md > Merge readiness). web: test and e2e; with the
+# ai-review label also code, QA and every labeled reviewer. Without ai-review,
+# CI alone decides. Runs from main only (workflow_run).
 name: ready-check
 
 on:
@@ -13,9 +14,9 @@ permissions: {}
 jobs:
   ready:
     permissions: {}   # every read and write uses the App token
-    uses: saikumar0202/shipyard/.github/workflows/ready.yml@v0.1.2
+    uses: saikumar0202/shipyard/.github/workflows/ready.yml@v0.2.0
     with:
-      shipyard_ref: v0.1.2
+      shipyard_ref: v0.2.0
       project_type: web
       ci_workflows: "ci,preview"
     secrets:
